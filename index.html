@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>SKU Ops — Productivity Tracker</title>
+<title>SKU Ops — Productivity Tracker (Live Sync)</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
@@ -45,7 +45,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid var(--border); }
 .logo-mark { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; }
 .logo-title { font-size: 15px; font-weight: 600; color: var(--text); margin-top: 2px; }
-.sidebar-nav { padding: 16px 12px; flex: 1; }
+.sidebar-nav { padding: 166px 12px; flex: 1; padding-top: 16px; }
 .nav-label { font-size: 10px; font-weight: 500; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; padding: 0 8px; margin: 16px 0 6px; }
 .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: var(--r-sm); cursor: pointer; font-size: 13px; color: var(--text2); transition: all 0.15s; margin-bottom: 2px; border: none; background: none; width: 100%; text-align: left; }
 .nav-item:hover { background: var(--bg3); color: var(--text); }
@@ -178,7 +178,6 @@ select option { background: var(--bg3); }
 <body>
 <div class="app">
 
-  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-logo">
       <div class="logo-mark">SKU Ops</div>
@@ -214,10 +213,8 @@ select option { background: var(--bg3); }
     </div>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
 
-    <!-- TOPBAR -->
     <div class="topbar">
       <div>
         <div class="page-title" id="page-title">Dashboard</div>
@@ -232,7 +229,6 @@ select option { background: var(--bg3); }
       </div>
     </div>
 
-    <!-- DASHBOARD -->
     <div id="sec-dashboard" class="section content active">
       <div class="filter-row" style="margin-bottom:20px">
         <span class="filter-label">Period:</span>
@@ -321,7 +317,6 @@ select option { background: var(--bg3); }
       </div>
     </div>
 
-    <!-- LOG WORK -->
     <div id="sec-log" class="section content">
       <div class="grid-2" style="align-items:start">
         <div>
@@ -382,7 +377,6 @@ select option { background: var(--bg3); }
       </div>
     </div>
 
-    <!-- QC ERRORS -->
     <div id="sec-qc" class="section content">
       <div class="grid-2" style="align-items:start">
         <div>
@@ -440,7 +434,6 @@ select option { background: var(--bg3); }
       </div>
     </div>
 
-    <!-- ALL RECORDS -->
     <div id="sec-records" class="section content">
       <div class="filter-row">
         <span class="filter-label">POC:</span>
@@ -470,7 +463,6 @@ select option { background: var(--bg3); }
       </div>
     </div>
 
-    <!-- SETTINGS -->
     <div id="sec-settings" class="section content">
       <div class="grid-2" style="align-items:start">
         <div class="card">
@@ -508,7 +500,28 @@ select option { background: var(--bg3); }
 
 <div class="toast" id="toast"></div>
 
-<script>
+<script type="module">
+// 1. IMPORT FIREBASE SDKs
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+// 2. YOUR FIREBASE CONFIG
+// INSTRUCTIONS: Go to Firebase Console -> Project Settings -> Web App to get this:
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const dbRef = ref(db, 'sku_tracker_data');
+
 // ─── STATE ───────────────────────────────────────────────
 let S = {
   pocs: ['Anjali','Rahul','Priya','Deepak','Sneha'],
@@ -520,18 +533,44 @@ let S = {
 const COLORS = ['#4f8ef7','#34c77b','#f5a623','#f25c5c','#a78bf7','#38c4c4','#f07dbb','#7dd4a8'];
 const AVATAR_COLORS = ['#2d6be4','#1a8f57','#c47d10','#c43030','#7158d4','#1d9898'];
 
-function save() { try { localStorage.setItem('skuprod_v2', JSON.stringify(S)); } catch(e){} }
-function load() { try { const d = localStorage.getItem('skuprod_v2'); if(d) S = JSON.parse(d); } catch(e){} }
+// ─── SYNC LOGIC ──────────────────────────────────────────
+// Push local state to cloud
+function syncToCloud() {
+  set(dbRef, S)
+    .catch((error) => console.error("Cloud Sync Error:", error));
+}
+
+// Live Listener: updates UI when data changes in cloud
+onValue(dbRef, (snapshot) => {
+  const data = snapshot.val();
+  if (data) {
+    S = data;
+    console.log("Cloud update received...");
+    refreshCurrentUI();
+  }
+});
+
+function refreshCurrentUI() {
+  const activeSection = document.querySelector('.section.active').id;
+  if(activeSection === 'sec-dashboard') renderDashboard();
+  if(activeSection === 'sec-records') renderRecords();
+  if(activeSection === 'sec-settings') renderSettings();
+  if(activeSection === 'sec-qc') renderQCList();
+  if(activeSection === 'sec-log') renderTodayEntries();
+  populateAllSelects(); 
+}
+
 function today() { return new Date().toISOString().split('T')[0]; }
 
 // ─── CHARTS ──────────────────────────────────────────────
 let chartDaily = null, chartErrors = null;
-
 function destroyChart(c) { if(c) { try { c.destroy(); } catch(e){} } }
 
 function buildDailyChart(labels, data) {
   destroyChart(chartDaily);
-  const ctx = document.getElementById('chart-daily').getContext('2d');
+  const canvas = document.getElementById('chart-daily');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
   chartDaily = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -594,17 +633,13 @@ const pageInfo = {
 
 function nav(page) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll(`[onclick="nav('${page}')"]`).forEach(b => b.classList.add('active'));
+  document.querySelectorAll(`.nav-item[onclick*="nav('${page}')"]`).forEach(b => b.classList.add('active'));
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.getElementById('sec-' + page).classList.add('active');
   const [title, sub] = pageInfo[page];
   document.getElementById('page-title').textContent = title;
   document.getElementById('page-sub').textContent = sub;
-  if(page === 'dashboard') renderDashboard();
-  if(page === 'records') renderRecords();
-  if(page === 'settings') renderSettings();
-  if(page === 'qc') renderQCList();
-  if(page === 'log') renderTodayEntries();
+  refreshCurrentUI();
 }
 
 // ─── SELECTS ─────────────────────────────────────────────
@@ -627,27 +662,20 @@ function populateAllSelects() {
   fillSelect('r-cat', S.categories, 'categories', true);
 }
 
-// ─── TOAST ───────────────────────────────────────────────
+// ─── UI HELPERS ──────────────────────────────────────────
 function toast(msg, type='success') {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = `toast ${type} show`;
   setTimeout(() => t.className = 'toast', 2500);
 }
 
-// ─── STEP HELPERS ─────────────────────────────────────────
 const STEPS = {1:'Validation',2:'JPIN lookup',3:'JPIN creation',4:'QC & L4 prep',5:'Sent to QC',6:'QC approved'};
 const STEP_BADGE = {1:'badge-gray',2:'badge-blue',3:'badge-amber',4:'badge-blue',5:'badge-amber',6:'badge-green'};
 
-function stepBadge(s) {
-  if(!s) return '<span class="badge badge-gray">—</span>';
-  return `<span class="badge ${STEP_BADGE[s]}" style="font-size:10px">S${s}: ${STEPS[s]}</span>`;
-}
-
-// Inline step-update control rendered in tables
 function stepUpdateCell(entry) {
   const cur = entry.step;
   const history = entry.stepHistory || [];
-  const histTip = history.map(h=>`S${h.step} – ${STEPS[h.step]} (${h.at})`).join('&#10;');
+  const histTip = history.map(h=>`S${h.step} – ${STEPS[h.step]} (${h.at})`).join('\n');
   const opts = Object.entries(STEPS).map(([k,v]) =>
     `<option value="${k}" ${cur==k?'selected':''}>${k} – ${v}</option>`
   ).join('');
@@ -673,28 +701,23 @@ function updateEntryStep(id, newStep) {
   if(!entry.stepHistory) entry.stepHistory = [];
   const now = new Date();
   const ts = now.toLocaleDateString('en-IN',{day:'numeric',month:'short'}) + ' ' + now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-  // Log old step in history if there was one
   if(entry.step && entry.step !== newStep) {
     entry.stepHistory.push({ step: entry.step, at: ts, changedTo: newStep });
   } else if(!entry.step) {
     entry.stepHistory.push({ step: newStep, at: ts, changedTo: newStep });
   }
   entry.step = newStep;
-  save();
-  renderTodayEntries();
-  renderRecords();
+  syncToCloud();
   toast(`Step updated → S${newStep}: ${STEPS[newStep]} ✓`);
 }
 
-// ─── AVATAR ──────────────────────────────────────────────
 function avatar(name, size=28) {
   const idx = S.pocs.indexOf(name) % AVATAR_COLORS.length;
   const c = AVATAR_COLORS[Math.max(0,idx)];
-  const init = name.slice(0,2).toUpperCase();
+  const init = (name||'??').slice(0,2).toUpperCase();
   return `<span class="avatar" style="width:${size}px;height:${size}px;background:${c}22;color:${c};font-size:${size*0.38}px">${init}</span>`;
 }
 
-// ─── PERIOD FILTER ────────────────────────────────────────
 function inPeriod(dateStr, period) {
   const now = new Date(); const t = today();
   if(period === 'today') return dateStr === t;
@@ -707,15 +730,15 @@ function inPeriod(dateStr, period) {
   return true;
 }
 
-// ─── DASHBOARD ───────────────────────────────────────────
+// ─── RENDERING ───────────────────────────────────────────
 function renderDashboard() {
   const period = document.getElementById('dash-period').value;
   const catF = document.getElementById('dash-category').value;
-  let entries = S.entries.filter(e => inPeriod(e.date, period) && (!catF || e.category === catF));
-  let errors  = S.qcErrors.filter(e => inPeriod(e.date, period) && (!catF || e.category === catF));
+  let entries = (S.entries||[]).filter(e => inPeriod(e.date, period) && (!catF || e.category === catF));
+  let errors  = (S.qcErrors||[]).filter(e => inPeriod(e.date, period) && (!catF || e.category === catF));
 
-  const totalSKUs   = entries.reduce((s,e) => s + e.processed, 0);
-  const totalErrors = errors.reduce((s,e) => s + e.errorSkus, 0);
+  const totalSKUs   = entries.reduce((s,e) => s + (e.processed||0), 0);
+  const totalErrors = errors.reduce((s,e) => s + (e.errorSkus||0), 0);
   const tickets     = new Set(entries.map(e => e.ticket)).size;
   const accuracy    = totalSKUs > 0 ? Math.max(0, (totalSKUs - totalErrors) / totalSKUs * 100) : null;
   const accStr      = accuracy !== null ? accuracy.toFixed(1) + '%' : '–';
@@ -764,59 +787,21 @@ function renderDashboard() {
     </tr>`;
   }).join('') : '<tr><td colspan="6" class="empty">No data for this period</td></tr>';
 
-  // Category
-  const catMap = {};
-  entries.forEach(e => {
-    if(!catMap[e.category]) catMap[e.category] = {sku:0,errors:0,tickets:new Set()};
-    catMap[e.category].sku += e.processed;
-    catMap[e.category].tickets.add(e.ticket);
-  });
-  errors.forEach(e => {
-    if(!catMap[e.category]) catMap[e.category] = {sku:0,errors:0,tickets:new Set()};
-    catMap[e.category].errors += e.errorSkus;
-  });
-
-  document.getElementById('dash-cat-tbody').innerHTML = Object.entries(catMap).sort((a,b)=>b[1].sku-a[1].sku).map(([cat,v]) => {
-    const acc = v.sku > 0 ? Math.max(0,(v.sku-v.errors)/v.sku*100) : null;
-    const accStr = acc !== null ? acc.toFixed(1)+'%' : '–';
-    const accBadge = acc===null?'badge-gray':acc>=95?'badge-green':acc>=85?'badge-amber':'badge-red';
-    return `<tr>
-      <td>${cat}</td>
-      <td style="font-weight:600">${v.sku}</td>
-      <td style="color:${v.errors>0?'#f25c5c':'#545869'}">${v.errors}</td>
-      <td><span class="badge ${accBadge}" style="font-size:10px">${accStr}</span></td>
-      <td>${v.tickets.size}</td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="5" class="empty">No data</td></tr>';
-
   // Daily chart — last 14 days
-  const days = Array.from({length:14}, (_,i) => {
+  const daysArr = Array.from({length:14}, (_,i) => {
     const d = new Date(); d.setDate(d.getDate() - 13 + i);
     return d.toISOString().split('T')[0];
   });
-  const dailyData = days.map(d => S.entries.filter(e=>e.date===d&&(!catF||e.category===catF)).reduce((s,e)=>s+e.processed,0));
-  const labels = days.map(d => { const dt = new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-IN',{day:'numeric',month:'short'}); });
+  const dailyData = daysArr.map(d => entries.filter(e=>e.date===d).reduce((s,e)=>s+e.processed,0));
+  const labels = daysArr.map(d => { const dt = new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-IN',{day:'numeric',month:'short'}); });
   buildDailyChart(labels, dailyData);
 
   // Error type chart
   const errTypes = {};
   errors.forEach(e => { if(e.errorType) errTypes[e.errorType] = (errTypes[e.errorType]||0) + e.errorSkus; });
   buildErrorChart(Object.keys(errTypes), Object.values(errTypes));
-
-  // Recent QC
-  const recentQC = [...S.qcErrors].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
-  document.getElementById('dash-qc-tbody').innerHTML = recentQC.length ? recentQC.map(e => `<tr>
-    <td class="mono">${e.date}</td>
-    <td><div style="display:flex;align-items:center;gap:6px">${avatar(e.poc, 22)}<span>${e.poc}</span></div></td>
-    <td><span class="badge badge-gray" style="font-size:10px">${e.ticket}</span></td>
-    <td>${e.category||'–'}</td>
-    <td><span style="color:#f25c5c;font-weight:600">${e.errorSkus}</span></td>
-    <td><span style="font-size:11px;color:#8b90a0">${e.errorType||'–'}</span></td>
-    <td><div style="display:flex;align-items:center;gap:6px">${avatar(e.reviewer||'?', 22)}<span style="font-size:11px;color:#8b90a0">${e.reviewer||'–'}</span></div></td>
-  </tr>`).join('') : '<tr><td colspan="7" class="empty">No QC errors logged</td></tr>';
 }
 
-// ─── LOG WORK ────────────────────────────────────────────
 function addEntry() {
   const stepVal = document.getElementById('e-step').value;
   const now = new Date();
@@ -833,28 +818,22 @@ function addEntry() {
     stepHistory: stepVal ? [{ step: stepVal, at: ts, changedTo: stepVal }] : [],
     notes:       document.getElementById('e-notes').value.trim()
   };
-  if(!e.poc) { toast('Please select a POC', 'error'); return; }
-  if(!e.ticket) { toast('Please enter a Ticket ID', 'error'); return; }
-  if(!e.processed) { toast('Please enter SKUs processed', 'error'); return; }
-  S.entries.push(e); save(); renderTodayEntries(); toast('Entry saved ✓');
+  if(!e.poc || !e.ticket || !e.processed) { toast('Fill required fields', 'error'); return; }
+  S.entries.push(e); 
+  syncToCloud(); 
+  toast('Entry saved ✓');
 }
 
 function deleteEntry(id) {
   if(!confirm('Delete this entry?')) return;
-  S.entries = S.entries.filter(e => e.id !== id); save(); renderTodayEntries(); renderRecords();
-}
-
-function clearLogForm() {
-  ['e-ticket','e-tskus','e-pskus','e-notes'].forEach(id => document.getElementById(id).value='');
-  document.getElementById('e-step').value='';
-  document.getElementById('e-date').value = today();
+  S.entries = S.entries.filter(e => e.id !== id); 
+  syncToCloud();
 }
 
 function renderTodayEntries() {
   const t = document.getElementById('e-date').value || today();
-  const entries = S.entries.filter(e => e.date === t);
+  const entries = (S.entries||[]).filter(e => e.date === t);
   document.getElementById('today-count').textContent = entries.length + ' entries';
-
   document.getElementById('today-tbody').innerHTML = entries.length ? entries.map(e => `<tr>
     <td><span class="badge badge-gray" style="font-size:10px">${e.ticket}</span></td>
     <td><div style="display:flex;align-items:center;gap:6px">${avatar(e.poc,22)}<span>${e.poc}</span></div></td>
@@ -863,51 +842,33 @@ function renderTodayEntries() {
     <td>${stepUpdateCell(e)}</td>
     <td><button class="btn btn-danger" onclick="deleteEntry(${e.id})">✕</button></td>
   </tr>`).join('') : '<tr><td colspan="6" class="empty">No entries for this date</td></tr>';
-
-  // Stats
-  const totalSKUs = entries.reduce((s,e)=>s+e.processed,0);
-  const byPOC = {};
-  entries.forEach(e => { byPOC[e.poc] = (byPOC[e.poc]||0) + e.processed; });
-  document.getElementById('today-stats').innerHTML = totalSKUs ? `
-    <div style="display:flex;gap:20px;flex-wrap:wrap">
-      <div><div style="font-size:11px;color:#8b90a0;margin-bottom:4px">Total SKUs today</div><div style="font-size:20px;font-weight:600;color:#4f8ef7">${totalSKUs}</div></div>
-      ${Object.entries(byPOC).map(([p,s])=>`<div><div style="font-size:11px;color:#8b90a0;margin-bottom:4px">${p}</div><div style="font-size:18px;font-weight:600">${s}</div></div>`).join('')}
-    </div>` : '<div style="color:#545869;font-size:13px">No entries yet today</div>';
 }
 
-// ─── QC ERRORS ───────────────────────────────────────────
 function addQCEntry() {
   const e = {
     id: Date.now(),
-    date:      document.getElementById('q-date').value || today(),
-    poc:       document.getElementById('q-poc').value,
-    reviewer:  document.getElementById('q-reviewer').value,
-    ticket:    document.getElementById('q-ticket').value.trim(),
-    category:  document.getElementById('q-cat').value,
+    date: document.getElementById('q-date').value || today(),
+    poc: document.getElementById('q-poc').value,
+    reviewer: document.getElementById('q-reviewer').value,
+    ticket: document.getElementById('q-ticket').value.trim(),
+    category: document.getElementById('q-cat').value,
     errorSkus: parseInt(document.getElementById('q-eskus').value)||0,
     errorType: document.getElementById('q-etype').value,
     description: document.getElementById('q-desc').value.trim()
   };
-  if(!e.poc) { toast('Select the working POC', 'error'); return; }
-  if(!e.ticket) { toast('Enter the Ticket ID', 'error'); return; }
-  if(!e.errorSkus) { toast('Enter error SKU count', 'error'); return; }
-  S.qcErrors.push(e); save(); renderQCList(); toast('QC error logged ✓');
+  if(!e.poc || !e.ticket || !e.errorSkus) { toast('Fill required fields', 'error'); return; }
+  if(!S.qcErrors) S.qcErrors = [];
+  S.qcErrors.push(e); syncToCloud(); toast('QC error logged ✓');
 }
 
 function deleteQC(id) {
   if(!confirm('Delete this QC entry?')) return;
-  S.qcErrors = S.qcErrors.filter(e=>e.id!==id); save(); renderQCList();
-}
-
-function clearQCForm() {
-  ['q-ticket','q-eskus','q-desc'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('q-etype').value='';
-  document.getElementById('q-date').value=today();
+  S.qcErrors = S.qcErrors.filter(e=>e.id!==id); syncToCloud();
 }
 
 function renderQCList() {
-  const recent = [...S.qcErrors].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,30);
-  document.getElementById('qc-count').textContent = S.qcErrors.length + ' total errors';
+  const recent = [...(S.qcErrors||[])].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,30);
+  document.getElementById('qc-count').textContent = (S.qcErrors||[]).length + ' total errors';
   document.getElementById('qc-tbody').innerHTML = recent.length ? recent.map(e=>`<tr>
     <td class="mono">${e.date}</td>
     <td><div style="display:flex;align-items:center;gap:6px">${avatar(e.poc,22)}<span>${e.poc}</span></div></td>
@@ -918,13 +879,12 @@ function renderQCList() {
   </tr>`).join('') : '<tr><td colspan="6" class="empty">No QC errors logged</td></tr>';
 }
 
-// ─── RECORDS ─────────────────────────────────────────────
 function renderRecords() {
   const pocF = document.getElementById('r-poc').value;
   const catF = document.getElementById('r-cat').value;
   const from = document.getElementById('r-from').value;
   const to   = document.getElementById('r-to').value;
-  let data = [...S.entries].sort((a,b)=>b.date.localeCompare(a.date));
+  let data = [...(S.entries||[])].sort((a,b)=>b.date.localeCompare(a.date));
   if(pocF) data = data.filter(e=>e.poc===pocF);
   if(catF) data = data.filter(e=>e.category===catF);
   if(from) data = data.filter(e=>e.date>=from);
@@ -943,13 +903,6 @@ function renderRecords() {
   </tr>`).join('') : '<tr><td colspan="9" class="empty">No records found</td></tr>';
 }
 
-function clearRecordFilters() {
-  ['r-poc','r-cat'].forEach(id=>{document.getElementById(id).value='';});
-  ['r-from','r-to'].forEach(id=>{document.getElementById(id).value='';});
-  renderRecords();
-}
-
-// ─── SETTINGS ────────────────────────────────────────────
 function renderSettings() {
   document.getElementById('poc-chips').innerHTML = S.pocs.map((p,i)=>`
     <span class="chip">${p}<span class="chip-remove" onclick="removePOC(${i})">×</span></span>`).join('');
@@ -959,54 +912,55 @@ function renderSettings() {
 
 function addPOC() {
   const v = document.getElementById('new-poc').value.trim();
-  if(!v || S.pocs.includes(v)) { toast('POC already exists or name empty', 'error'); return; }
-  S.pocs.push(v); save(); populateAllSelects(); renderSettings();
-  document.getElementById('new-poc').value = ''; toast(`${v} added`);
+  if(!v || S.pocs.includes(v)) return;
+  S.pocs.push(v); syncToCloud(); document.getElementById('new-poc').value = '';
 }
-function removePOC(i) { const name = S.pocs[i]; S.pocs.splice(i,1); save(); populateAllSelects(); renderSettings(); toast(`${name} removed`); }
+function removePOC(i) { S.pocs.splice(i,1); syncToCloud(); }
 
 function addCategory() {
   const v = document.getElementById('new-cat').value.trim();
-  if(!v || S.categories.includes(v)) { toast('Category already exists or name empty', 'error'); return; }
-  S.categories.push(v); save(); populateAllSelects(); renderSettings();
-  document.getElementById('new-cat').value = ''; toast(`${v} added`);
+  if(!v || S.categories.includes(v)) return;
+  S.categories.push(v); syncToCloud(); document.getElementById('new-cat').value = '';
 }
-function removeCategory(i) { const name = S.categories[i]; S.categories.splice(i,1); save(); populateAllSelects(); renderSettings(); toast(`${name} removed`); }
+function removeCategory(i) { S.categories.splice(i,1); syncToCloud(); }
 
 function clearAllData() {
-  if(!confirm('Delete ALL work log and QC entries? This cannot be undone.')) return;
-  S.entries = []; S.qcErrors = []; save();
-  renderQCList(); renderTodayEntries();
-  toast('All data cleared');
+  if(!confirm('Delete ALL work entries?')) return;
+  S.entries = []; S.qcErrors = []; syncToCloud();
 }
 
-// ─── EXPORT ──────────────────────────────────────────────
 function exportCSV() {
-  const headers = ['Date','POC','Ticket ID','Category','SKUs in ticket','SKUs processed','Current Step','Step history','Notes'];
-  const workRows = S.entries.map(e => {
-    const history = (e.stepHistory||[]).map(h=>`S${h.step}@${h.at}`).join(' → ');
-    return [e.date,e.poc,e.ticket,e.category,e.ticketSkus,e.processed,STEPS[e.step]||'',history,e.notes].join(',');
-  });
-  const qcHeaders = ['Date','Working POC','QC POC','Ticket','Category','Error SKUs','Error type','Description'];
-  const qcRows = S.qcErrors.map(e => [e.date,e.poc,e.reviewer,e.ticket,e.category,e.errorSkus,e.errorType,e.description].join(','));
-  const csv = [
-    '=== WORK LOG ===', headers.join(','), ...workRows, '',
-    '=== QC ERRORS ===', qcHeaders.join(','), ...qcRows
-  ].join('\n');
+  const headers = ['Date','POC','Ticket ID','Category','SKUs in ticket','SKUs processed','Current Step','Notes'];
+  const workRows = S.entries.map(e => [e.date,e.poc,e.ticket,e.category,e.ticketSkus,e.processed,STEPS[e.step]||'',e.notes].join(','));
+  const csv = [headers.join(','), ...workRows].join('\n');
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
   a.download = `sku-tracker-${today()}.csv`; a.click();
-  toast('CSV exported');
 }
 
+// ─── EXPOSE TO WINDOW (needed for HTML onclicks) ───────
+window.nav = nav;
+window.addEntry = addEntry;
+window.deleteEntry = deleteEntry;
+window.updateEntryStep = updateEntryStep;
+window.addQCEntry = addQCEntry;
+window.deleteQC = deleteQC;
+window.renderDashboard = renderDashboard;
+window.renderRecords = renderRecords;
+window.addPOC = addPOC;
+window.removePOC = removePOC;
+window.addCategory = addCategory;
+window.removeCategory = removeCategory;
+window.clearAllData = clearAllData;
+window.exportCSV = exportCSV;
+window.clearLogForm = () => { ['e-ticket','e-tskus','e-pskus','e-notes'].forEach(id => document.getElementById(id).value=''); };
+window.clearQCForm = () => { ['q-ticket','q-eskus','q-desc'].forEach(id=>document.getElementById(id).value=''); };
+window.clearRecordFilters = () => { ['r-poc','r-cat','r-from','r-to'].forEach(id=>{document.getElementById(id).value='';}); renderRecords(); };
+
 // ─── INIT ────────────────────────────────────────────────
-load();
 document.getElementById('e-date').value = today();
 document.getElementById('q-date').value = today();
-const d = new Date();
-document.getElementById('sidebar-date').textContent = d.toLocaleDateString('en-IN', {weekday:'short', day:'numeric', month:'short', year:'numeric'});
-populateAllSelects();
-renderDashboard();
+document.getElementById('sidebar-date').textContent = new Date().toLocaleDateString('en-IN', {weekday:'short', day:'numeric', month:'short', year:'numeric'});
 </script>
 </body>
 </html>
